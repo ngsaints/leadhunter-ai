@@ -623,6 +623,21 @@ app.delete('/admin/users/:id', authMiddleware, adminMiddleware, async (req, res)
 });
 
 // =============================================
+// SERVIR FRONTEND (PRODUÇÃO)
+// =============================================
+// No Railway, o frontend será compilado para client/dist
+const clientDistPath = path.join(__dirname, '../client/dist');
+if (fs.existsSync(clientDistPath)) {
+  app.use(express.static(clientDistPath));
+  app.get('*', (req, res) => {
+    // Evitar capturar rotas de API
+    if (!req.path.startsWith('/api') && !req.path.startsWith('/auth') && !req.path.startsWith('/leads') && !req.path.startsWith('/automation')) {
+      res.sendFile(path.join(clientDistPath, 'index.html'));
+    }
+  });
+}
+
+// =============================================
 // INICIALIZAÇÃO
 // =============================================
 const stripe = Stripe(process.env.STRIPE_KEY);

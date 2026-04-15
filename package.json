@@ -1,0 +1,12 @@
+{
+  "name": "leadhunter-ai-root",
+  "version": "1.2.0",
+  "private": true,
+  "scripts": {
+    "install:server": "cd server && npm install",
+    "install:client": "cd client && npm install",
+    "build:client": "cd client && npm run build",
+    "start": "cd server && npm start",
+    "deploy": "npm run install:server && npm run install:client && npm run build:client && npm run start"
+  }
+}
