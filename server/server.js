@@ -595,8 +595,11 @@ if (fs.existsSync(clientDistPath)) {
 // =============================================
 // INICIALIZAÇÃO
 // =============================================
-const stripe = Stripe(process.env.STRIPE_KEY);
-const openai = new OpenAI({ apiKey: process.env.OPENAI_KEY });
+const stripe = process.env.STRIPE_KEY ? Stripe(process.env.STRIPE_KEY) : null;
+const openai = process.env.OPENAI_KEY ? new OpenAI({ apiKey: process.env.OPENAI_KEY }) : null;
+
+if (!process.env.OPENAI_KEY) console.warn('⚠️ OPENAI_KEY não configurada nas variáveis de ambiente.');
+if (!process.env.STRIPE_KEY) console.warn('⚠️ STRIPE_KEY não configurada nas variáveis de ambiente.');
 
 setupDB().then(() => {
   app.listen(PORT, () => console.log(`🚀 LeadHunter AI rodando na porta ${PORT}`));
