@@ -1,56 +1,71 @@
-const Database = require('better-sqlite3');
+const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 require('dotenv').config();
 
 // Configuração do caminho do banco
 const dbPath = path.join(__dirname, process.env.DATABASE_URL?.replace('sqlite:', '') || 'leadhunter.db');
-const db = new Database(dbPath);
+const db = new sqlite3.Database(dbPath);
 
-// ATIVAR MODO WAL (Write-Ahead Logging) para alta performance
-db.pragma('journal_mode = WAL');
+// ATIVAR MODO WAL (Write-Ahead Logging)
+db.run('PRAGMA journal_mode = WAL');
 
 /**
- * Esse arquivo centraliza as operações de banco de dados para facilitar
- * uma futura migração para PostgreSQL.
- * 
- * Para migrar:
- * 1. Instale o driver: npm install pg
- * 2. Substitua este arquivo por uma implementação usando 'pg'
- * 3. As queries foram escritas de forma a serem 99% compatíveis.
+ * Interface simplificada para manter compatibilidade com o código anterior.
+ * Nota: sqlite3 é assíncrono nativamente, mas para comandos simples 
+ * ele enfileira as operações, o que funciona bem para pedidos de baixo volume.
  */
 
 module.exports = {
   // Executa uma query que não retorna dados (INSERT, UPDATE, DELETE)
   run: (sql, params = []) => {
-    return db.prepare(sql).run(...params);
+    return new Promise((resolve, reject) => {
+      db.run(sql, params, function(err) {
+        if (err) reject(err);
+        else resolve({ lastInsertRowid: this.lastID, changes: this.changes });
+      });
+    });
   },
 
   // Executa SQL puro
   exec: (sql) => {
-    return db.exec(sql);
+    return new Promise((resolve, reject) => {
+      db.exec(sql, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
   },
 
   // Busca um único registro
   get: (sql, params = []) => {
-    return db.prepare(sql).get(...params);
+    return new Promise((resolve, reject) => {
+      db.get(sql, params, (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
   },
 
   // Busca vários registros
   all: (sql, params = []) => {
-    return db.prepare(sql).all(...params);
+    return new Promise((resolve, reject) => {
+      db.all(sql, params, (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
   },
 
-  // Helper para pragma (específico SQLite)
+  // Helper para pragma
   pragma: (sql) => {
-    return db.pragma ? db.pragma(sql) : [];
+    return new Promise((resolve, reject) => {
+      db.all(`PRAGMA ${sql}`, (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
   },
 
-  // Helper para transações (opcional mas recomendado)
-  transaction: (fn) => {
-    return db.transaction(fn);
-  },
-  
-  // Exportamos o objeto original apenas se necessário, 
-  // mas o ideal é usar os helpers acima.
+  // Exportamos o objeto original
   raw: db
 };

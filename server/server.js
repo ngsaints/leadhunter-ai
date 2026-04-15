@@ -27,21 +27,22 @@ if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
 // =============================================
 // SETUP DO BANCO
 // =============================================
-function setupDB() {
+async function setupDB() {
   // Tabela users
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name VARCHAR(100) NOT NULL,
       email VARCHAR(150) UNIQUE NOT NULL,
       password VARCHAR(255) NOT NULL,
       plan VARCHAR(20) DEFAULT 'free',
+      is_admin BOOLEAN DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
   // Tabela leads
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS leads (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -55,7 +56,7 @@ function setupDB() {
   `);
 
   // Tabela messages
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER REFERENCES leads(id) ON DELETE CASCADE,
@@ -66,16 +67,8 @@ function setupDB() {
     )
   `);
 
-  const userColumns = db.pragma('table_info(users)');
-  const userColumnNames = userColumns.map(c => c.name);
-
-  if (!userColumnNames.includes('is_admin')) {
-    db.run('ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT 0');
-    console.log('✨ Coluna is_admin adicionada à tabela users');
-  }
-
   // Tabela automation_settings
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS automation_settings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
@@ -95,7 +88,7 @@ function setupDB() {
   `);
 
   // Tabela subscriptions
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS subscriptions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -110,24 +103,20 @@ function setupDB() {
 
   // Migração: Adicionar colunas se não existirem
   try {
-    const columns = db.pragma('table_info(automation_settings)');
+    const columns = await db.pragma('table_info(automation_settings)');
     const columnNames = columns.map(c => c.name);
     
     if (!columnNames.includes('whatsapp_instance')) {
-      db.run('ALTER TABLE automation_settings ADD COLUMN whatsapp_instance VARCHAR(100)');
-      console.log('✨ Coluna whatsapp_instance adicionada');
+      await db.run('ALTER TABLE automation_settings ADD COLUMN whatsapp_instance VARCHAR(100)');
     }
     if (!columnNames.includes('whatsapp_token')) {
-      db.run('ALTER TABLE automation_settings ADD COLUMN whatsapp_token VARCHAR(255)');
-      console.log('✨ Coluna whatsapp_token adicionada');
+      await db.run('ALTER TABLE automation_settings ADD COLUMN whatsapp_token VARCHAR(255)');
     }
     if (!columnNames.includes('openai_key')) {
-      db.run('ALTER TABLE automation_settings ADD COLUMN openai_key VARCHAR(255)');
-      console.log('✨ Coluna openai_key adicionada');
+      await db.run('ALTER TABLE automation_settings ADD COLUMN openai_key VARCHAR(255)');
     }
     if (!columnNames.includes('apify_key')) {
-      db.run('ALTER TABLE automation_settings ADD COLUMN apify_key VARCHAR(255)');
-      console.log('✨ Coluna apify_key adicionada');
+      await db.run('ALTER TABLE automation_settings ADD COLUMN apify_key VARCHAR(255)');
     }
   } catch (err) {
     console.error('Erro na migração do banco:', err);
@@ -172,18 +161,17 @@ app.post('/auth/register', async (req, res) => {
 
   try {
     const hash = await bcrypt.hash(password, 12);
-    
     const isAdmin = email === process.env.ADMIN_EMAIL ? 1 : 0;
     
-    const result = db.run(
+    const result = await db.run(
       'INSERT INTO users (name, email, password, is_admin) VALUES (?, ?, ?, ?)',
       [name, email, hash, isAdmin]
     );
     
-    const user = db.get('SELECT id, name, email, plan, is_admin FROM users WHERE id = ?', [result.lastInsertRowid]);
+    const user = await db.get('SELECT id, name, email, plan, is_admin FROM users WHERE id = ?', [result.lastInsertRowid]);
 
     // Criar settings padrão
-    db.run(
+    await db.run(
       'INSERT OR IGNORE INTO automation_settings (user_id) VALUES (?)',
       [user.id]
     );
@@ -191,7 +179,7 @@ app.post('/auth/register', async (req, res) => {
     const token = jwt.sign({ id: user.id, email: user.email, is_admin: !!user.is_admin }, process.env.JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: { ...user, is_admin: !!user.is_admin } });
   } catch (err) {
-    if (err.message.includes('UNIQUE constraint failed')) 
+    if (err.message && err.message.includes('UNIQUE constraint failed')) 
       return res.status(400).json({ error: 'Email já cadastrado' });
     res.status(500).json({ error: 'Erro ao criar conta' });
   }
@@ -200,7 +188,7 @@ app.post('/auth/register', async (req, res) => {
 app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
-    const user = db.get('SELECT * FROM users WHERE email = ?', [email]);
+    const user = await db.get('SELECT * FROM users WHERE email = ?', [email]);
     if (!user || !(await bcrypt.compare(password, user.password)))
       return res.status(401).json({ error: 'Credenciais inválidas' });
 
@@ -214,8 +202,8 @@ app.post('/auth/login', async (req, res) => {
   }
 });
 
-app.get('/auth/me', authMiddleware, (req, res) => {
-  const user = db.get('SELECT id, name, email, plan, created_at FROM users WHERE id = ?', [req.user.id]);
+app.get('/auth/me', authMiddleware, async (req, res) => {
+  const user = await db.get('SELECT id, name, email, plan, created_at FROM users WHERE id = ?', [req.user.id]);
   if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
   res.json(user);
 });
@@ -224,7 +212,7 @@ app.get('/auth/me', authMiddleware, (req, res) => {
 // HELPERS
 // =============================================
 async function getUserOpenAI(userId) {
-  const settings = db.get('SELECT openai_key FROM automation_settings WHERE user_id = ?', [userId]);
+  const settings = await db.get('SELECT openai_key FROM automation_settings WHERE user_id = ?', [userId]);
   const key = settings?.openai_key || process.env.OPENAI_KEY;
   if (!key) throw new Error('OpenAI não configurada');
   return new OpenAI({ apiKey: key });
@@ -233,7 +221,7 @@ async function getUserOpenAI(userId) {
 // =============================================
 // ROTAS: LEADS
 // =============================================
-app.get('/leads', authMiddleware, (req, res) => {
+app.get('/leads', authMiddleware, async (req, res) => {
   const { status, city, niche, page = 1 } = req.query;
   const limit = 20;
   const offset = (page - 1) * limit;
@@ -248,38 +236,38 @@ app.get('/leads', authMiddleware, (req, res) => {
   query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
   params.push(limit, offset);
   
-  const leads = db.all(query, params);
+  const leads = await db.all(query, params);
   res.json(leads);
 });
 
-app.post('/leads', authMiddleware, (req, res) => {
+app.post('/leads', authMiddleware, async (req, res) => {
   const { name, phone, city, niche } = req.body;
-  const result = db.run(
+  const result = await db.run(
     'INSERT INTO leads (user_id, name, phone, city, niche) VALUES (?, ?, ?, ?, ?)',
     [req.user.id, name, phone, city, niche]
   );
-  const lead = db.get('SELECT * FROM leads WHERE id = ?', [result.lastInsertRowid]);
+  const lead = await db.get('SELECT * FROM leads WHERE id = ?', [result.lastInsertRowid]);
   res.json(lead);
 });
 
-app.patch('/leads/:id/status', authMiddleware, (req, res) => {
+app.patch('/leads/:id/status', authMiddleware, async (req, res) => {
   const { status } = req.body;
   const valid = ['new', 'sent', 'warm', 'hot', 'closed', 'rejected'];
   if (!valid.includes(status)) return res.status(400).json({ error: 'Status inválido' });
   
-  const result = db.run(
+  const result = await db.run(
     'UPDATE leads SET status=? WHERE id=? AND user_id=?',
     [status, req.params.id, req.user.id]
   );
   
   if (result.changes === 0) return res.status(404).json({ error: 'Lead não encontrado' });
   
-  const lead = db.get('SELECT * FROM leads WHERE id = ?', [req.params.id]);
+  const lead = await db.get('SELECT * FROM leads WHERE id = ?', [req.params.id]);
   res.json(lead);
 });
 
-app.get('/leads/stats', authMiddleware, (req, res) => {
-  const stats = db.get(`
+app.get('/leads/stats', authMiddleware, async (req, res) => {
+  const stats = await db.get(`
     SELECT
       COUNT(*) AS total,
       COUNT(CASE WHEN status='hot' THEN 1 END) AS hot,
@@ -295,8 +283,8 @@ app.get('/leads/stats', authMiddleware, (req, res) => {
 // =============================================
 // ROTAS: MESSAGES
 // =============================================
-app.get('/messages/:lead_id', authMiddleware, (req, res) => {
-  const messages = db.all(`
+app.get('/messages/:lead_id', authMiddleware, async (req, res) => {
+  const messages = await db.all(`
     SELECT m.* FROM messages m
     JOIN leads l ON m.lead_id = l.id
     WHERE m.lead_id=? AND l.user_id=?
@@ -378,8 +366,8 @@ app.post('/messages/reply', authMiddleware, async (req, res) => {
 // =============================================
 // ROTAS: AUTOMAÇÃO
 // =============================================
-app.get('/automation', authMiddleware, (req, res) => {
-  const settings = db.get(
+app.get('/automation', authMiddleware, async (req, res) => {
+  const settings = await db.get(
     'SELECT * FROM automation_settings WHERE user_id=?',
     [req.user.id]
   );
@@ -387,13 +375,13 @@ app.get('/automation', authMiddleware, (req, res) => {
   res.json(settings || {});
 });
 
-app.put('/automation', authMiddleware, (req, res) => {
+app.put('/automation', authMiddleware, async (req, res) => {
   const { 
     niche, city, style, send_hours, auto_search, auto_send, auto_reply,
     whatsapp_instance, whatsapp_token, openai_key, apify_key
   } = req.body;
   
-  db.run(`
+  await db.run(`
     INSERT INTO automation_settings (
       user_id, niche, city, style, send_hours, auto_search, auto_send, auto_reply, 
       whatsapp_instance, whatsapp_token, openai_key, apify_key, updated_at
@@ -414,7 +402,7 @@ app.put('/automation', authMiddleware, (req, res) => {
     whatsapp_instance, whatsapp_token, openai_key, apify_key
   ]);
   
-  const settings = db.get('SELECT * FROM automation_settings WHERE user_id = ?', [req.user.id]);
+  const settings = await db.get('SELECT * FROM automation_settings WHERE user_id = ?', [req.user.id]);
   res.json(settings);
 });
 
@@ -449,21 +437,21 @@ app.post('/whatsapp/send', authMiddleware, async (req, res) => {
   const { phone, message } = req.body;
 
   // Verifica plano
-  const user = db.get('SELECT plan FROM users WHERE id = ?', [req.user.id]);
-  if (user.plan === 'free') {
-    const count = db.get(`
+  const user = await db.get('SELECT plan FROM users WHERE id = ?', [req.user.id]);
+  if (user && user.plan === 'free') {
+    const data = await db.get(`
       SELECT COUNT(*) as count FROM messages m
       JOIN leads l ON m.lead_id=l.id
       WHERE l.user_id=? AND m.created_at > datetime('now', 'start of month')
     `, [req.user.id]);
     
-    if (count.count >= 20)
+    if (data.count >= 20)
       return res.status(403).json({ error: 'Limite do plano Free atingido. Faça upgrade para Pro.' });
   }
 
   try {
     // Busca configurações do usuário (instância/token)
-    const settings = db.get('SELECT whatsapp_instance, whatsapp_token FROM automation_settings WHERE user_id = ?', [req.user.id]);
+    const settings = await db.get('SELECT whatsapp_instance, whatsapp_token FROM automation_settings WHERE user_id = ?', [req.user.id]);
     const instance = settings?.whatsapp_instance || process.env.ZAPI_INSTANCE;
     const token = settings?.whatsapp_token || process.env.ZAPI_TOKEN;
 
@@ -471,7 +459,7 @@ app.post('/whatsapp/send', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'WhatsApp não configurado. Vá em Configurações.' });
     }
 
-    // Integração Z-API
+    // Integração Z-API (usando fetch que já é global no Node 18+)
     const zapiRes = await fetch(
       `https://api.z-api.io/instances/${instance}/token/${token}/send-text`,
       {
@@ -480,55 +468,18 @@ app.post('/whatsapp/send', authMiddleware, async (req, res) => {
         body: JSON.stringify({ phone: phone.replace(/\D/g, ''), message })
       }
     );
-    const data = await zapiRes.json();
-    res.json({ success: true, data });
+    const zapiData = await zapiRes.json();
+    res.json({ success: true, data: zapiData });
   } catch (err) {
     res.status(500).json({ error: 'Erro ao enviar mensagem WhatsApp' });
   }
 });
 
-// Webhook Z-API (recebe mensagens)
-app.post('/whatsapp/webhook', (req, res) => {
-  const { phone, text, fromMe } = req.body;
-  if (fromMe) return res.json({ ok: true });
-
-  console.log(`📩 Nova mensagem de ${phone}: ${text}`);
-
-  // Aqui você pode: encontrar o lead, salvar a mensagem, acionar a IA para responder
-  // Implementação completa dependeria do seu fluxo de negócio
-
-  res.json({ ok: true });
-});
-
 // =============================================
 // ROTAS: PAGAMENTOS (STRIPE)
 // =============================================
-app.post('/payments/checkout', authMiddleware, async (req, res) => {
-  try {
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency: 'brl',
-          product_data: { name: 'LeadHunter AI Pro', description: 'Leads ilimitados + IA 24h/7' },
-          unit_amount: 9700, // R$97,00 em centavos
-          recurring: { interval: 'month' }
-        },
-        quantity: 1
-      }],
-      mode: 'subscription',
-      success_url: `${req.headers.origin}/dashboard?upgrade=success`,
-      cancel_url: `${req.headers.origin}/dashboard?upgrade=cancelled`,
-      metadata: { user_id: req.user.id }
-    });
-    res.json({ url: session.url });
-  } catch (err) {
-    res.status(500).json({ error: 'Erro ao criar sessão de pagamento' });
-  }
-});
-
 app.post('/payments/portal', authMiddleware, async (req, res) => {
-  const sub = db.get('SELECT stripe_customer_id FROM subscriptions WHERE user_id=?', [req.user.id]);
+  const sub = await db.get('SELECT stripe_customer_id FROM subscriptions WHERE user_id=?', [req.user.id]);
   if (!sub) return res.status(404).json({ error: 'Assinatura não encontrada' });
 
   const session = await stripe.billingPortal.sessions.create({
@@ -539,7 +490,7 @@ app.post('/payments/portal', authMiddleware, async (req, res) => {
 });
 
 // Webhook Stripe
-app.post('/webhook/stripe', async (req, res) => {
+app.post('/webhook/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
 
@@ -553,8 +504,8 @@ app.post('/webhook/stripe', async (req, res) => {
     const session = event.data.object;
     const userId = session.metadata.user_id;
 
-    db.run('UPDATE users SET plan=? WHERE id=?', ['pro', userId]);
-    db.run(`
+    await db.run('UPDATE users SET plan=? WHERE id=?', ['pro', userId]);
+    await db.run(`
       INSERT OR IGNORE INTO subscriptions (user_id, stripe_customer_id, stripe_subscription_id, status)
       VALUES (?, ?, ?, 'active')
     `, [userId, session.customer, session.subscription]);
@@ -562,11 +513,11 @@ app.post('/webhook/stripe', async (req, res) => {
 
   if (event.type === 'customer.subscription.deleted') {
     const sub = event.data.object;
-    db.run('UPDATE subscriptions SET status=? WHERE stripe_subscription_id=?', ['cancelled', sub.id]);
+    await db.run('UPDATE subscriptions SET status=? WHERE stripe_subscription_id=?', ['cancelled', sub.id]);
     
-    const result = db.get('SELECT user_id FROM subscriptions WHERE stripe_subscription_id=?', [sub.id]);
+    const result = await db.get('SELECT user_id FROM subscriptions WHERE stripe_subscription_id=?', [sub.id]);
     if (result) {
-      db.run('UPDATE users SET plan=? WHERE id=?', ['free', result.user_id]);
+      await db.run('UPDATE users SET plan=? WHERE id=?', ['free', result.user_id]);
     }
   }
 
@@ -577,11 +528,15 @@ app.post('/webhook/stripe', async (req, res) => {
 // ROTAS: ADMIN
 // =============================================
 app.get('/admin/stats', authMiddleware, adminMiddleware, async (req, res) => {
-  const totalUsers = db.get('SELECT COUNT(*) as count FROM users')?.count || 0;
-  const activeSubs = db.get('SELECT COUNT(*) as count FROM subscriptions WHERE status="active"')?.[0]?.count || 0;
-  const totalLeads = db.get('SELECT COUNT(*) as count FROM leads')?.count || 0;
-  const revenueEntries = db.all('SELECT plan FROM users WHERE plan != "free"');
-  const fakeRevenue = revenueEntries.length * 97; // Simulação de faturamento bruto
+  const usersCount = await db.get('SELECT COUNT(*) as count FROM users');
+  const subsCount = await db.get('SELECT COUNT(*) as count FROM subscriptions WHERE status="active"');
+  const leadsCount = await db.get('SELECT COUNT(*) as count FROM leads');
+  const revenueEntries = await db.all('SELECT plan FROM users WHERE plan != "free"');
+  
+  const totalUsers = usersCount?.count || 0;
+  const activeSubs = subsCount?.count || 0;
+  const totalLeads = leadsCount?.count || 0;
+  const fakeRevenue = (revenueEntries?.length || 0) * 97;
 
   res.json({
     totalUsers,
@@ -592,8 +547,8 @@ app.get('/admin/stats', authMiddleware, adminMiddleware, async (req, res) => {
 });
 
 app.get('/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
-  const users = db.all(`
-    SELECT users.id, users.name, users.email, users.plan, users.is_admin, users.created_at,
+  const users = await db.all(`
+    SELECT id, name, email, plan, is_admin, created_at,
     (SELECT COUNT(*) FROM leads WHERE user_id = users.id) as leads_count
     FROM users
     ORDER BY created_at DESC
@@ -609,7 +564,7 @@ app.patch('/admin/users/:id/plan', authMiddleware, adminMiddleware, async (req, 
     return res.status(400).json({ error: 'Plano inválido' });
   }
 
-  db.run('UPDATE users SET plan = ? WHERE id = ?', [plan, id]);
+  await db.run('UPDATE users SET plan = ? WHERE id = ?', [plan, id]);
   res.json({ success: true });
 });
 
@@ -618,7 +573,7 @@ app.delete('/admin/users/:id', authMiddleware, adminMiddleware, async (req, res)
   if (parseInt(id) === req.user.id) {
     return res.status(400).json({ error: 'Você não pode deletar a si mesmo' });
   }
-  db.run('DELETE FROM users WHERE id = ?', [id]);
+  await db.run('DELETE FROM users WHERE id = ?', [id]);
   res.json({ success: true });
 });
 
@@ -643,8 +598,10 @@ if (fs.existsSync(clientDistPath)) {
 const stripe = Stripe(process.env.STRIPE_KEY);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_KEY });
 
-setupDB();
-
-app.listen(PORT, () => console.log(`🚀 LeadHunter AI rodando na porta ${PORT}`));
+setupDB().then(() => {
+  app.listen(PORT, () => console.log(`🚀 LeadHunter AI rodando na porta ${PORT}`));
+}).catch(err => {
+  console.error('❌ Falha ao iniciar banco de dados:', err);
+});
 
 module.exports = app;
