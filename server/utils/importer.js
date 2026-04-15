@@ -41,21 +41,23 @@ async function processImportFile(filePath, userId) {
     });
   }
 
-  // Inserção em lote (batch insert)
-  const stmt = db.run('INSERT INTO leads (user_id, name, phone, city, niche) VALUES (?, ?, ?, ?, ?)', []);
-  
-  db.transaction(() => {
-    for (const lead of leads) {
-      if (lead.phone) {
-        db.run(
+  // Inserção assíncrona
+  let count = 0;
+  for (const lead of leads) {
+    if (lead.phone) {
+      try {
+        await db.run(
           'INSERT INTO leads (user_id, name, phone, city, niche) VALUES (?, ?, ?, ?, ?)',
           [userId, lead.name || 'Sem nome', lead.phone, lead.city || '', lead.niche || '']
         );
+        count++;
+      } catch (err) {
+        console.error('Erro ao inserir lead:', err);
       }
     }
-  });
+  }
 
-  return leads.length;
+  return count;
 }
 
 module.exports = { processImportFile };

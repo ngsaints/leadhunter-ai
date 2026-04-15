@@ -6,7 +6,7 @@ const db = require('../db');
  * Este processo é assíncrono e deve ser monitorado via Webhook.
  */
 async function triggerGoogleMapsSearch(userId) {
-  const settings = db.get('SELECT * FROM automation_settings WHERE user_id = ?', [userId]);
+  const settings = await db.get('SELECT * FROM automation_settings WHERE user_id = ?', [userId]);
   
   const token = settings?.apify_key || process.env.APIFY_TOKEN;
   if (!token) throw new Error('Apify API Token não configurado');
