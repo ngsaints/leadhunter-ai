@@ -3,8 +3,8 @@
   "version": "1.2.0",
   "private": true,
   "scripts": {
-    "install:server": "cd server && npm install",
-    "install:client": "cd client && npm install",
+    "install:server": "cd server && rm -rf node_modules && npm install",
+    "install:client": "cd client && rm -rf node_modules && npm install",
     "build:client": "cd client && npm run build",
     "start": "cd server && npm start",
     "deploy": "npm run install:server && npm run install:client && npm run build:client && npm run start"
