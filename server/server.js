@@ -212,10 +212,7 @@ app.get('/auth/me', authMiddleware, async (req, res) => {
 // HELPERS
 // =============================================
 async function getUserOpenAI(userId) {
-  const settings = await db.get('SELECT openai_key FROM automation_settings WHERE user_id = ?', [userId]);
-  const key = settings?.openai_key || process.env.OPENAI_KEY;
-  if (!key) throw new Error('OpenAI não configurada');
-  return new OpenAI({ apiKey: key });
+  throw new Error('As funcionalidades de IA (OpenAI) estão temporariamente desabilitadas. Por favor, configure a OPENAI_KEY no Railway.');
 }
 
 // =============================================
@@ -592,35 +589,9 @@ if (fs.existsSync(clientDistPath)) {
   });
 }
 
-// =============================================
-// INICIALIZAÇÃO
-// =============================================
-const stripeKey = process.env.STRIPE_KEY;
-const openaiKey = process.env.OPENAI_KEY;
-
-// Inicialização segura do Stripe
-let stripe = null;
-if (stripeKey && !stripeKey.includes('placeholder')) {
-  try {
-    stripe = Stripe(stripeKey);
-  } catch (err) {
-    console.error('❌ Erro ao inicializar Stripe:', err.message);
-  }
-} else {
-  console.warn('⚠️ STRIPE_KEY não configurada ou contém placeholder.');
-}
-
-// Inicialização segura da OpenAI
+// OpenAI Temporariamente Desabilitada para evitar crash no deploy
 let openai = null;
-if (openaiKey && !openaiKey.includes('placeholder') && openaiKey.trim() !== '') {
-  try {
-    openai = new OpenAI({ apiKey: openaiKey });
-  } catch (err) {
-    console.error('❌ Erro ao inicializar OpenAI:', err.message);
-  }
-} else {
-  console.warn('⚠️ OPENAI_KEY não configurada ou contém placeholder.');
-}
+console.warn('⚠️ OpenAI está temporariamente DESABILITADA no código.');
 
 setupDB().then(() => {
   app.listen(PORT, () => console.log(`🚀 LeadHunter AI rodando na porta ${PORT}`));
