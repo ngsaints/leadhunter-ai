@@ -595,11 +595,32 @@ if (fs.existsSync(clientDistPath)) {
 // =============================================
 // INICIALIZAÇÃO
 // =============================================
-const stripe = process.env.STRIPE_KEY ? Stripe(process.env.STRIPE_KEY) : null;
-const openai = process.env.OPENAI_KEY ? new OpenAI({ apiKey: process.env.OPENAI_KEY }) : null;
+const stripeKey = process.env.STRIPE_KEY;
+const openaiKey = process.env.OPENAI_KEY;
 
-if (!process.env.OPENAI_KEY) console.warn('⚠️ OPENAI_KEY não configurada nas variáveis de ambiente.');
-if (!process.env.STRIPE_KEY) console.warn('⚠️ STRIPE_KEY não configurada nas variáveis de ambiente.');
+// Inicialização segura do Stripe
+let stripe = null;
+if (stripeKey && !stripeKey.includes('placeholder')) {
+  try {
+    stripe = Stripe(stripeKey);
+  } catch (err) {
+    console.error('❌ Erro ao inicializar Stripe:', err.message);
+  }
+} else {
+  console.warn('⚠️ STRIPE_KEY não configurada ou contém placeholder.');
+}
+
+// Inicialização segura da OpenAI
+let openai = null;
+if (openaiKey && !openaiKey.includes('placeholder') && openaiKey.trim() !== '') {
+  try {
+    openai = new OpenAI({ apiKey: openaiKey });
+  } catch (err) {
+    console.error('❌ Erro ao inicializar OpenAI:', err.message);
+  }
+} else {
+  console.warn('⚠️ OPENAI_KEY não configurada ou contém placeholder.');
+}
 
 setupDB().then(() => {
   app.listen(PORT, () => console.log(`🚀 LeadHunter AI rodando na porta ${PORT}`));
